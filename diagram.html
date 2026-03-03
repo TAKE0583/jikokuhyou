@@ -123,8 +123,15 @@
             color: rgba(255, 255, 255, 0.8);
             font-size: 12px;
             align-self: center;
-            min-width: 45px;
+            min-width: 40px;
             text-align: center;
+        }
+
+        .toolbar .zoom-axis-label {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 15px;
+            align-self: center;
+            line-height: 1;
         }
 
         .canvas-container {
@@ -173,12 +180,18 @@
         <div style="display: flex; gap: 4px;">
             <button class="direction-btn" data-dir="下り">下り</button>
             <button class="direction-btn" data-dir="上り">上り</button>
+            <button class="direction-btn" data-dir="上下">上下</button>
         </div>
         <input type="date" id="dateFilter">
         <div class="zoom-controls">
-            <button onclick="zoomBy(-0.2)" title="縮小">−</button>
-            <span class="zoom-level" id="zoomLevel">100%</span>
-            <button onclick="zoomBy(0.2)" title="拡大">＋</button>
+            <span class="zoom-axis-label">↔</span>
+            <button onclick="zoomXBy(-0.25)" title="時間軸を縮小">−</button>
+            <span class="zoom-level" id="zoomLevelX">100%</span>
+            <button onclick="zoomXBy(0.25)" title="時間軸を拡大">＋</button>
+            <span class="zoom-axis-label" style="margin-left:6px">↕</span>
+            <button onclick="zoomYBy(-0.25)" title="駅間を縮小">−</button>
+            <span class="zoom-level" id="zoomLevelY">100%</span>
+            <button onclick="zoomYBy(0.25)" title="駅間を拡大">＋</button>
             <button onclick="resetView()" title="リセット">⟳</button>
         </div>
     </div>
@@ -187,17 +200,19 @@
         <canvas id="diagramCanvas"></canvas>
     </div>
 
-    <div class="hint" id="hint">ドラッグで移動 ・ スクロールで拡大縮小</div>
+    <div class="hint" id="hint">ドラッグで移動 · スクロール: 縮尺 · Ctrl+スクロール: 時間軸 · Shift+スクロール: 駅間</div>
 
     <script>
         // --- State ---
         let stationsData = [];
         let trainsData = [];
         let currentRoute = '';
-        let currentDirection = '下り';
+        let currentDirection = '上下';
 
         // --- View transform ---
         let scale = 1;
+        let userScaleX = 1; // extra horizontal (time axis) stretch
+        let userScaleY = 1; // extra vertical (station spacing) stretch
         let offsetX = 0;
         let offsetY = 0;
         let isDragging = false;
@@ -214,7 +229,8 @@
         // Offscreen canvas cache
         let offCanvas = null;
         let offCtx = null;
-        let offScale = 1; // scale at which offscreen was rendered
+        let offScaleX = 1; // X scale at which offscreen was rendered
+        let offScaleY = 1; // Y scale at which offscreen was rendered
         let cachedDiagramData = null;
         let renderPending = false;
         let hqTimer = null; // debounce timer for high-quality re-render
@@ -336,11 +352,11 @@
             return p.length === 3 ? new Date(+p[0], +p[1] - 1, +p[2]) : p.length === 2 ? new Date(defaultYear, +p[0] - 1, +p[1]) : null;
         }
 
-        function getFilteredTrains() {
+        function getFilteredTrains(direction) {
             const dateStr = document.getElementById('dateFilter').value;
-            const filtered = trainsData.filter(t => t.route === currentRoute && t.direction === currentDirection);
+            const filtered = trainsData.filter(t => t.route === currentRoute && t.direction === direction);
             const nums = [...new Set(filtered.map(t => t.trainNumber))];
-            return nums.map(n => { const i = filtered.find(t => t.trainNumber === n); return { trainNumber: n, trainName: i.trainName, operationDay: i.operationDay }; })
+            return nums.map(n => { const i = filtered.find(t => t.trainNumber === n); return { trainNumber: n, trainName: i.trainName, operationDay: i.operationDay, direction }; })
                 .filter(t => matchesOperationDay(t.operationDay, dateStr));
         }
 
@@ -372,6 +388,11 @@
             });
         }
 
+        function getActiveDirections() {
+            if (currentDirection === '上下') return ['下り', '上り'];
+            return [currentDirection];
+        }
+
         // --- Pan / Zoom ---
 
         function setupPanZoom() {
@@ -394,11 +415,29 @@
                 e.preventDefault();
                 const r = c.getBoundingClientRect();
                 const mx = e.clientX - r.left, my = e.clientY - r.top;
-                const ns = Math.max(0.1, Math.min(10, scale * (1 - e.deltaY * 0.001)));
-                const f = ns / scale;
-                offsetX = mx - f * (mx - offsetX); offsetY = my - f * (my - offsetY);
-                scale = ns;
-                updateZoomLabel(); scheduleBlit(); scheduleHQ();
+                const delta = e.deltaY * 0.001;
+                if (e.ctrlKey) {
+                    // X-axis only (time axis)
+                    const nsx = Math.max(0.1, Math.min(20, userScaleX * (1 - delta)));
+                    const fx = nsx / userScaleX;
+                    offsetX = mx - fx * (mx - offsetX);
+                    userScaleX = nsx;
+                    updateZoomLabel(); scheduleBlit(); scheduleHQ();
+                } else if (e.shiftKey) {
+                    // Y-axis only (station spacing)
+                    const nsy = Math.max(0.1, Math.min(20, userScaleY * (1 - delta)));
+                    const fy = nsy / userScaleY;
+                    offsetY = my - fy * (my - offsetY);
+                    userScaleY = nsy;
+                    updateZoomLabel(); scheduleBlit(); scheduleHQ();
+                } else {
+                    // Uniform zoom
+                    const ns = Math.max(0.1, Math.min(10, scale * (1 - delta)));
+                    const f = ns / scale;
+                    offsetX = mx - f * (mx - offsetX); offsetY = my - f * (my - offsetY);
+                    scale = ns;
+                    updateZoomLabel(); scheduleBlit(); scheduleHQ();
+                }
             }, { passive: false });
 
             c.addEventListener('touchstart', e => {
@@ -452,32 +491,44 @@
         function scheduleHQ() {
             clearTimeout(hqTimer);
             hqTimer = setTimeout(() => {
-                if (cachedDiagramData && Math.abs(offScale - scale) > 0.01) {
-                    renderOffscreen(scale);
+                const vsx = scale * userScaleX, vsy = scale * userScaleY;
+                if (cachedDiagramData && (Math.abs(offScaleX - vsx) > 0.01 || Math.abs(offScaleY - vsy) > 0.01)) {
+                    renderOffscreen(vsx, vsy);
                     blitToScreen();
                 }
             }, 200);
         }
 
-        function zoomBy(delta) {
-            const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
-            const ns = Math.max(0.1, Math.min(10, scale + delta));
-            const f = ns / scale;
-            offsetX = cx - f * (cx - offsetX); offsetY = cy - f * (cy - offsetY);
-            scale = ns;
+        function zoomXBy(delta) {
+            const cx = window.innerWidth / 2;
+            const ns = Math.max(0.1, Math.min(20, userScaleX + delta));
+            const f = ns / userScaleX;
+            offsetX = cx - f * (cx - offsetX);
+            userScaleX = ns;
+            updateZoomLabel(); blitToScreen(); scheduleHQ();
+        }
+
+        function zoomYBy(delta) {
+            const cy = window.innerHeight / 2;
+            const ns = Math.max(0.1, Math.min(20, userScaleY + delta));
+            const f = ns / userScaleY;
+            offsetY = cy - f * (cy - offsetY);
+            userScaleY = ns;
             updateZoomLabel(); blitToScreen(); scheduleHQ();
         }
 
         function resetView() {
             const toolbarH = document.getElementById('toolbar').offsetHeight;
-            scale = 1; offsetX = 0; offsetY = toolbarH;
+            scale = 1; userScaleX = 1; userScaleY = 1;
+            offsetX = 0; offsetY = toolbarH;
             updateZoomLabel();
-            renderOffscreen(scale);
+            renderOffscreen(1, 1);
             blitToScreen();
         }
 
         function updateZoomLabel() {
-            document.getElementById('zoomLevel').textContent = Math.round(scale * 100) + '%';
+            document.getElementById('zoomLevelX').textContent = Math.round(userScaleX * 100) + '%';
+            document.getElementById('zoomLevelY').textContent = Math.round(userScaleY * 100) + '%';
         }
 
         // --- Diagram Data ---
@@ -491,7 +542,7 @@
         function rebuildAndRender() {
             rebuildDiagramData();
             if (cachedDiagramData) {
-                renderOffscreen(scale);
+                renderOffscreen(scale * userScaleX, scale * userScaleY);
                 resetView();
             } else {
                 offCanvas = null;
@@ -502,15 +553,47 @@
         function rebuildDiagramData() {
             if (!currentRoute || !currentDirection) { cachedDiagramData = null; return; }
 
-            const stations = stationsData.filter(s => s.route === currentRoute && s.direction === currentDirection).sort((a, b) => a.order - b.order);
-            const ft = getFilteredTrains();
-            const ftNums = ft.map(t => t.trainNumber);
-            const trainEntries = trainsData.filter(t => t.route === currentRoute && t.direction === currentDirection && ftNums.includes(t.trainNumber));
+            const activeDirections = getActiveDirections();
 
-            if (stations.length === 0 || ftNums.length === 0) { cachedDiagramData = null; return; }
+            // Always use 下り stations as the canonical Y-axis order
+            const baseDirection = '下り';
+            const stations = stationsData.filter(s => s.route === currentRoute && s.direction === baseDirection).sort((a, b) => a.order - b.order);
+            if (stations.length === 0) { cachedDiagramData = null; return; }
 
+            // Build a station-name → index map based on 下り order
+            const si = {}; stations.forEach((s, i) => { si[s.station] = i; });
+
+            // Collect filtered trains for each active direction
+            const allTrainLines = [];
             let minT = Infinity, maxT = -Infinity;
-            trainEntries.forEach(t => { const m = timeToMinutes(t.time); if (m !== null) { minT = Math.min(minT, m); maxT = Math.max(maxT, m); } });
+
+            // Color palettes: blue family for 下り, red/orange family for 上り
+            const downColors = ['#1e88e5', '#0288d1', '#00acc1', '#00897b', '#039be5', '#3949ab', '#5e35b1', '#1565c0', '#0277bd', '#006064'];
+            const upColors = ['#e53935', '#f4511e', '#fb8c00', '#d81b60', '#8e24aa', '#c0392b', '#bf360c', '#e65100', '#ad1457', '#6a1493'];
+
+            activeDirections.forEach(dir => {
+                const ft = getFilteredTrains(dir);
+                const ftNums = ft.map(t => t.trainNumber);
+                const trainEntries = trainsData.filter(t => t.route === currentRoute && t.direction === dir && ftNums.includes(t.trainNumber));
+
+                trainEntries.forEach(t => { const m = timeToMinutes(t.time); if (m !== null) { minT = Math.min(minT, m); maxT = Math.max(maxT, m); } });
+
+                const palette = dir === '下り' ? downColors : upColors;
+
+                ftNums.forEach((num, idx) => {
+                    const entries = trainEntries.filter(e => e.trainNumber === num);
+                    const st = {};
+                    entries.forEach(e => {
+                        if (e.time === 'レ') return;
+                        const m = timeToMinutes(e.time); if (m === null) return;
+                        if (si[e.station] === undefined) return;
+                        if (!st[e.station]) st[e.station] = {};
+                        st[e.station][e.type] = m;
+                    });
+                    allTrainLines.push({ dir, trainNumber: num, label: entries[0]?.trainName || '', color: palette[idx % palette.length], st });
+                });
+            });
+
             if (minT === Infinity) { cachedDiagramData = null; return; }
 
             minT = Math.floor(minT / 60) * 60;
@@ -534,89 +617,103 @@
             });
             const tX = m => mL + (m - minT) * ppm;
 
-            const si = {}; stations.forEach((s, i) => { si[s.station] = i; });
-
-            const colors = ['#e53935', '#1e88e5', '#43a047', '#fb8c00', '#8e24aa', '#00acc1', '#d81b60', '#5e35b1', '#3949ab', '#039be5', '#00897b', '#7cb342', '#c0ca33', '#ffb300', '#f4511e', '#6d4c41'];
+            // Build final train lines now that sY/tX are available
             const trainLines = [];
-            ftNums.forEach((num, idx) => {
-                const entries = trainEntries.filter(e => e.trainNumber === num);
-                const st = {};
-                entries.forEach(e => {
-                    if (e.time === 'レ') return;
-                    const m = timeToMinutes(e.time); if (m === null) return;
-                    if (si[e.station] === undefined) return;
-                    if (!st[e.station]) st[e.station] = {};
-                    st[e.station][e.type] = m;
-                });
+            allTrainLines.forEach(train => {
                 const pts = [];
-                stations.forEach((s, i) => {
-                    const t = st[s.station]; if (!t) return;
-                    if (t['着'] !== undefined) pts.push({ x: tX(t['着']), y: sY[i] });
-                    if (t['発'] !== undefined) pts.push({ x: tX(t['発']), y: sY[i] });
+                // For 下り: iterate stations in 下り order (top→bottom = start→end)
+                // For 上り: iterate stations in reverse order (bottom→top = start→end)
+                const stationOrder = train.dir === '上り' ? [...stations].reverse() : stations;
+                stationOrder.forEach(s => {
+                    const t = train.st[s.station]; if (!t) return;
+                    const yIdx = si[s.station];
+                    if (t['着'] !== undefined) pts.push({ x: tX(t['着']), y: sY[yIdx] });
+                    if (t['発'] !== undefined) pts.push({ x: tX(t['発']), y: sY[yIdx] });
                 });
                 if (pts.length < 2) return;
-                trainLines.push({ points: pts, color: colors[idx % colors.length], trainNumber: num, label: entries[0].trainName || '' });
+                trainLines.push({ points: pts, color: train.color, trainNumber: train.trainNumber, label: train.label, dir: train.dir });
             });
 
-            cachedDiagramData = { stations, sY, minT, maxT, mL, mR, mT, mB, pW, pH, ppm, trainLines, tX };
+            cachedDiagramData = { stations, sY, minT, maxT, mL, mR, mT, mB, pW, pH, ppm, trainLines, tX, activeDirections };
         }
 
-        // --- Offscreen Rendering (called once, then cached) ---
+        // --- Offscreen Rendering: vector lines + fixed-size text ---
 
-        function renderOffscreen(atScale) {
+        function renderOffscreen(atScaleX, atScaleY) {
             if (!cachedDiagramData) return;
             const d = cachedDiagramData;
             const dpr = window.devicePixelRatio || 1;
             const logW = d.mL + d.pW + d.mR;
             const logH = d.mT + d.pH + d.mB;
 
-            // Canvas size = logical size * scale * dpr
-            const cw = Math.ceil(logW * atScale * dpr);
-            const ch = Math.ceil(logH * atScale * dpr);
-
-            // Cap to avoid huge canvas (max ~8192px)
+            // Canvas size = logical * scale * dpr (non-uniform)
+            let useSX = atScaleX, useSY = atScaleY;
+            const cw0 = Math.ceil(logW * useSX * dpr);
+            const ch0 = Math.ceil(logH * useSY * dpr);
             const maxDim = 8192;
-            if (cw > maxDim || ch > maxDim) {
-                // Render at reduced scale to stay within limits
-                const reduceFactor = Math.min(maxDim / cw, maxDim / ch);
-                atScale *= reduceFactor;
+            if (cw0 > maxDim || ch0 > maxDim) {
+                const r = Math.min(maxDim / cw0, maxDim / ch0);
+                useSX *= r; useSY *= r;
             }
-            const fw = Math.ceil(logW * atScale * dpr);
-            const fh = Math.ceil(logH * atScale * dpr);
+            const cw = Math.ceil(logW * useSX * dpr);
+            const ch = Math.ceil(logH * useSY * dpr);
 
             if (!offCanvas) offCanvas = document.createElement('canvas');
-            offCanvas.width = fw;
-            offCanvas.height = fh;
+            offCanvas.width = cw;
+            offCanvas.height = ch;
             offCtx = offCanvas.getContext('2d');
-            offScale = atScale;
+            offScaleX = useSX;
+            offScaleY = useSY;
 
-            offCtx.setTransform(atScale * dpr, 0, 0, atScale * dpr, 0, 0);
+            // Non-uniform transform: logical coords -> physical pixels
+            // Lines and fills are drawn in this space (vector quality)
+            const setVS = () => offCtx.setTransform(useSX * dpr, 0, 0, useSY * dpr, 0, 0);
+            // Text space: draw at DPR-only scale, positions pre-multiplied
+            const setTS = () => offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            // Logical -> offscreen CSS pixel position for text placement
+            const px = x => x * useSX;
+            const py = y => y * useSY;
 
             // Background
+            setVS();
             offCtx.fillStyle = '#ffffff';
             offCtx.fillRect(0, 0, logW, logH);
 
-            // Grid: horizontal
+            // Grid: horizontal station lines
             offCtx.strokeStyle = '#e0e0e0';
-            offCtx.lineWidth = 1;
+            offCtx.lineWidth = 1 / useSY;  // ~1px on screen
             d.stations.forEach((s, i) => {
                 offCtx.beginPath(); offCtx.moveTo(d.mL, d.sY[i]); offCtx.lineTo(d.mL + d.pW, d.sY[i]); offCtx.stroke();
             });
 
-            // Grid: vertical
+            // Grid: vertical time lines
             for (let t = d.minT; t <= d.maxT; t += 10) {
                 const x = d.tX(t);
-                if (t % 60 === 0) { offCtx.strokeStyle = '#bbb'; offCtx.lineWidth = 1.5; }
-                else { offCtx.strokeStyle = '#e8e8e8'; offCtx.lineWidth = 0.5; }
+                if (t % 60 === 0) { offCtx.strokeStyle = '#bbb'; offCtx.lineWidth = 1.5 / useSX; }
+                else { offCtx.strokeStyle = '#e8e8e8'; offCtx.lineWidth = 0.5 / useSX; }
                 offCtx.beginPath(); offCtx.moveTo(x, d.mT); offCtx.lineTo(x, d.mT + d.pH); offCtx.stroke();
             }
+
+            // Train lines
+            d.trainLines.forEach(train => {
+                offCtx.strokeStyle = train.color;
+                offCtx.lineWidth = 1.5 / Math.min(useSX, useSY); // ~1.5px on screen
+                offCtx.beginPath(); offCtx.moveTo(train.points[0].x, train.points[0].y);
+                for (let i = 1; i < train.points.length; i++) offCtx.lineTo(train.points[i].x, train.points[i].y);
+                offCtx.stroke();
+            });
+
+            // === Text (fixed size regardless of zoom) ===
+            setTS();
 
             // Station labels
             offCtx.fillStyle = '#333';
             offCtx.font = '12px -apple-system, sans-serif';
             offCtx.textAlign = 'right';
             offCtx.textBaseline = 'middle';
-            d.stations.forEach((s, i) => { offCtx.fillText(s.station, d.mL - 8, d.sY[i]); });
+            d.stations.forEach((s, i) => {
+                offCtx.fillText(s.station, px(d.mL - 8), py(d.sY[i]));
+            });
 
             // Time labels
             offCtx.textAlign = 'center'; offCtx.textBaseline = 'bottom';
@@ -625,30 +722,44 @@
                 offCtx.font = isHour ? 'bold 12px -apple-system, sans-serif' : '10px -apple-system, sans-serif';
                 offCtx.fillStyle = isHour ? '#333' : '#888';
                 const label = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
-                offCtx.fillText(label, d.tX(t), d.mT - 5);
+                offCtx.fillText(label, px(d.tX(t)), py(d.mT - 5));
             }
 
-            // Train lines
+            // Train number labels at the start of each line
+            offCtx.font = 'bold 9px -apple-system, sans-serif';
+            offCtx.textAlign = 'left'; offCtx.textBaseline = 'bottom';
             d.trainLines.forEach(train => {
-                offCtx.strokeStyle = train.color; offCtx.lineWidth = 2;
-                offCtx.beginPath(); offCtx.moveTo(train.points[0].x, train.points[0].y);
-                for (let i = 1; i < train.points.length; i++) offCtx.lineTo(train.points[i].x, train.points[i].y);
-                offCtx.stroke();
-
-                // Draw train number label at the start of the line
                 const labelText = train.trainNumber;
-                offCtx.font = 'bold 9px -apple-system, sans-serif';
                 const textW = offCtx.measureText(labelText).width;
-                const lx = train.points[0].x + 2;
-                const ly = train.points[0].y - 4;
-                // White background for readability
+                const lx = px(train.points[0].x) + 2;
+                const ly = py(train.points[0].y) - 2;
                 offCtx.fillStyle = 'rgba(255,255,255,0.85)';
-                offCtx.fillRect(lx - 1, ly - 9, textW + 2, 11);
-                // Train number text
+                offCtx.fillRect(lx - 1, ly - 10, textW + 2, 11);
                 offCtx.fillStyle = train.color;
-                offCtx.textAlign = 'left'; offCtx.textBaseline = 'bottom';
                 offCtx.fillText(labelText, lx, ly);
             });
+
+            // Legend (only in 上下 mode)
+            if (d.activeDirections && d.activeDirections.length > 1) {
+                const legendItems = [
+                    { label: '下り', color: '#1e88e5' },
+                    { label: '上り', color: '#e53935' }
+                ];
+                const lPad = 10, lItemH = 18, lW = 72, lH = lPad * 2 + legendItems.length * lItemH;
+                const lx = px(d.mL + d.pW) - lW - 8, ly = py(d.mT) + 8;
+                offCtx.fillStyle = 'rgba(255,255,255,0.88)';
+                offCtx.strokeStyle = '#ccc'; offCtx.lineWidth = 1;
+                offCtx.beginPath(); offCtx.roundRect(lx, ly, lW, lH, 4); offCtx.fill(); offCtx.stroke();
+                legendItems.forEach((item, i) => {
+                    const iy = ly + lPad + i * lItemH + lItemH / 2;
+                    offCtx.fillStyle = item.color;
+                    offCtx.fillRect(lx + lPad, iy - 2, 16, 3);
+                    offCtx.fillStyle = '#333';
+                    offCtx.font = '11px -apple-system, sans-serif';
+                    offCtx.textAlign = 'left'; offCtx.textBaseline = 'middle';
+                    offCtx.fillText(item.label, lx + lPad + 22, iy);
+                });
+            }
         }
 
         // --- Screen Blit (ultra-fast, called on every pan/zoom frame) ---
@@ -670,10 +781,12 @@
 
             if (!offCanvas || !cachedDiagramData) return;
 
-            // Draw cached offscreen bitmap, scaled by current zoom relative to offscreen zoom
-            const relScale = scale / offScale;
-            const dw = offCanvas.width / dpr * relScale;
-            const dh = offCanvas.height / dpr * relScale;
+            // Draw cached offscreen bitmap, with per-axis relative scale for fast pan
+            // (RelScale approaches 1.0 just before each HQ re-render fires)
+            const relSX = (scale * userScaleX) / offScaleX;
+            const relSY = (scale * userScaleY) / offScaleY;
+            const dw = offCanvas.width / dpr * relSX;
+            const dh = offCanvas.height / dpr * relSY;
             ctx.drawImage(offCanvas, offsetX, offsetY, dw, dh);
         }
     </script>
