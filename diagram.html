@@ -513,8 +513,8 @@
             trainEntries.forEach(t => { const m = timeToMinutes(t.time); if (m !== null) { minT = Math.min(minT, m); maxT = Math.max(maxT, m); } });
             if (minT === Infinity) { cachedDiagramData = null; return; }
 
-            minT = Math.floor(minT / 10) * 10;
-            maxT = Math.ceil(maxT / 10) * 10;
+            minT = Math.floor(minT / 60) * 60;
+            maxT = Math.ceil(maxT / 60) * 60;
 
             const mL = 100, mR = 40, mT = 50, mB = 40, ppm = 6;
             const hasDist = stations.every(s => s.distance !== null && s.distance !== undefined);
@@ -620,13 +620,12 @@
 
             // Time labels
             offCtx.textAlign = 'center'; offCtx.textBaseline = 'bottom';
-            offCtx.font = 'bold 12px -apple-system, sans-serif'; offCtx.fillStyle = '#333';
-            for (let t = d.minT; t <= d.maxT; t += 60) {
-                offCtx.fillText(`${Math.floor(t / 60)}:00`, d.tX(t), d.mT - 8);
-            }
-            offCtx.font = '10px -apple-system, sans-serif'; offCtx.fillStyle = '#888';
             for (let t = d.minT; t <= d.maxT; t += 30) {
-                if (t % 60 !== 0) offCtx.fillText(`${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`, d.tX(t), d.mT - 8);
+                const isHour = (t % 60 === 0);
+                offCtx.font = isHour ? 'bold 12px -apple-system, sans-serif' : '10px -apple-system, sans-serif';
+                offCtx.fillStyle = isHour ? '#333' : '#888';
+                const label = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+                offCtx.fillText(label, d.tX(t), d.mT - 5);
             }
 
             // Train lines
