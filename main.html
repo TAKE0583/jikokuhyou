@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>縦型時刻表</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 25px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .route-info {
+            background: #00bcd4;
+            color: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .control-group label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        select,
+        button {
+            padding: 12px 20px;
+            font-size: 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        select {
+            min-width: 200px;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            font-weight: 600;
+        }
+
+        button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .direction-selector {
+            display: flex;
+            gap: 10px;
+        }
+
+        .direction-btn {
+            padding: 10px 25px;
+            border: 2px solid #e0e0e0;
+            background: white;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .direction-btn.active {
+            background: #00bcd4;
+            color: white;
+            border-color: #00bcd4;
+        }
+
+        .content {
+            max-width: 100%;
+            overflow: hidden;
+        }
+
+        .panel {
+            background: white;
+            padding: 25px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            min-width: 0;
+            overflow: hidden;
+        }
+
+        .panel h2 {
+            font-size: 24px;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .timetable-wrapper {
+            overflow-x: auto;
+            overflow-y: auto;
+            max-height: calc(100vh - 200px);
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+        }
+
+        .timetable {
+            min-width: 100%;
+            border-collapse: collapse;
+        }
+
+        .timetable th,
+        .timetable td {
+            border: 1px solid #e0e0e0;
+            padding: 8px 12px;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .timetable thead {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            background: white;
+        }
+
+        .timetable thead th {
+            background: #f5f5f5;
+            font-weight: 600;
+            border-bottom: 2px solid #ccc;
+        }
+
+        .timetable tbody th {
+            position: sticky;
+            left: 0;
+            background: #fafafa;
+            font-weight: 600;
+            text-align: left;
+            z-index: 10;
+            border-right: 2px solid #ccc;
+        }
+
+        .train-header {
+            background: #e3f2fd !important;
+        }
+
+        .train-number {
+            font-size: 16px;
+            font-weight: bold;
+            color: #1976d2;
+        }
+
+        .train-name {
+            font-size: 14px;
+            color: #666;
+        }
+
+        .train-origin {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .time-cell {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .time-cell.departure {
+            color: #d32f2f;
+        }
+
+        .time-cell.arrival {
+            color: #1976d2;
+        }
+
+        .pass-through {
+            color: #999;
+            font-size: 18px;
+        }
+
+        .arr-dep-label {
+            font-size: 11px;
+            color: #888;
+            font-weight: 600;
+            display: inline-block;
+            min-width: 16px;
+        }
+
+        .station-name-cell {
+            vertical-align: middle;
+        }
+
+        .sub-row-cell {
+            background: #fafafa;
+            font-weight: 600;
+            text-align: left;
+            border-right: 2px solid #ccc;
+            padding: 4px 8px;
+            position: sticky;
+            left: 0;
+            z-index: 10;
+        }
+
+        .operation-day {
+            font-size: 11px;
+            color: #f57c00;
+            display: block;
+            margin-top: 2px;
+        }
+
+        .operation-day.daily {
+            color: #333;
+        }
+
+
+
+
+
+        .diagram-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 16px 30px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .diagram-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚄 縦型時刻表</h1>
+            <div class="route-info" id="routeInfo">路線・方面を選択してください</div>
+            <div class="controls">
+                <div class="control-group">
+                    <label>路線</label>
+                    <select id="routeSelect">
+                        <option value="">路線を選択</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <label>方面</label>
+                    <div class="direction-selector" id="directionSelector">
+                        <button class="direction-btn">下り</button>
+                        <button class="direction-btn">上り</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>日付フィルター</label>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <input type="date" id="dateFilter"
+                            style="padding: 10px 15px; font-size: 14px; border: 2px solid #e0e0e0; border-radius: 10px;">
+                        <button onclick="clearDateFilter()"
+                            style="padding: 10px 15px; font-size: 13px; background: #999;">クリア</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="panel">
+                <h2>📋 時刻表</h2>
+                <div class="timetable-wrapper">
+                    <div id="timetableDisplay">
+                        <p style="color: #999; text-align: center; padding: 40px;">読み込み中...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <a href="diagram.html" class="diagram-link">📊 ダイヤグラムを開く</a>
+    </div>
+
+    <script>
+        let stationsData = [];
+        let trainsData = [];
+        let currentRoute = '';
+        let currentDirection = '下り';
+
+        // 初期化
+        document.addEventListener('DOMContentLoaded', async function () {
+            setupEventListeners();
+            await loadCSVFiles();
+        });
+
+        function setupEventListeners() {
+            document.getElementById('routeSelect').addEventListener('change', function () {
+                currentRoute = this.value;
+                updateDirectionSelector();
+                updateRouteInfo();
+                displayTimetable();
+            });
+
+            document.getElementById('dateFilter').addEventListener('change', function () {
+                displayTimetable();
+            });
+        }
+
+        function clearDateFilter() {
+            document.getElementById('dateFilter').value = '';
+            displayTimetable();
+        }
+
+        function parseCSV(text) {
+            return text.trim().split('\n').map(line => {
+                const values = [];
+                let current = '';
+                let inQuotes = false;
+
+                for (let char of line.replace(/\r$/, '')) {
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        values.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                values.push(current.trim());
+                return values;
+            });
+        }
+
+        function parseStationCSV(text) {
+            const lines = parseCSV(text);
+            return lines
+                .filter(line => line.length >= 4 && line[0] && line[1])
+                .map(line => ({
+                    route: line[0],
+                    direction: line[1],
+                    order: parseInt(line[2]) || 0,
+                    station: line[3],
+                    distance: line.length >= 5 ? parseFloat(line[4]) || 0 : null
+                }))
+                .sort((a, b) => a.order - b.order);
+        }
+
+        function parseTrainCSV(text) {
+            const lines = parseCSV(text);
+            return lines
+                .filter(line => line.length >= 10 && line[0] && line[2])
+                .map(line => ({
+                    route: line[0],
+                    direction: line[1],
+                    trainNumber: line[2],
+                    trainName: line[3],
+                    origin: line[4],
+                    originTime: line[5],
+                    operationDay: line[6],
+                    station: line[7],
+                    type: line[8],
+                    time: line[9]
+                }));
+        }
+
+        async function loadCSVFiles() {
+            try {
+                // 駅データを読み込み
+                const stationRes = await fetch('stations.csv');
+                if (!stationRes.ok) return;
+                const stationText = await stationRes.text();
+                if (!stationText.trim()) return;
+                stationsData = parseStationCSV(stationText);
+
+                // 路線一覧を取得して、路線ごとの列車データを読み込み
+                const routes = [...new Set(stationsData.map(s => s.route))];
+                trainsData = [];
+                const fetches = routes.map(async (route) => {
+                    try {
+                        const res = await fetch(`data/${encodeURIComponent(route)}.csv`);
+                        if (res.ok) {
+                            const text = await res.text();
+                            if (text.trim()) {
+                                trainsData.push(...parseTrainCSV(text));
+                            }
+                        }
+                    } catch (e) { /* 路線ファイルが無い場合はスキップ */ }
+                });
+                await Promise.all(fetches);
+
+                updateRouteSelect();
+            } catch (e) {
+                console.error('CSV読み込みエラー:', e);
+            }
+        }
+
+        function updateRouteSelect() {
+            const routeSelect = document.getElementById('routeSelect');
+            const routes = [...new Set(stationsData.map(s => s.route))];
+
+            routeSelect.innerHTML = '<option value="">路線を選択</option>' +
+                routes.map(route => `<option value="${route}">${route}</option>`).join('');
+
+            if (routes.length > 0 && !currentRoute) {
+                currentRoute = routes[0];
+                routeSelect.value = currentRoute;
+                updateDirectionSelector();
+                updateRouteInfo();
+                displayTimetable();
+            }
+        }
+
+        function updateDirectionSelector() {
+            const directionSelector = document.getElementById('directionSelector');
+            const directions = [...new Set(stationsData
+                .filter(s => s.route === currentRoute)
+                .map(s => s.direction))];
+
+            directionSelector.innerHTML = directions
+                .map(dir => `<button class="direction-btn" onclick="selectDirection('${dir}')">${dir}</button>`)
+                .join('');
+
+            if (directions.length > 0) {
+                currentDirection = directions[0];
+                updateDirectionButtons();
+            }
+        }
+
+        function selectDirection(direction) {
+            currentDirection = direction;
+            updateDirectionButtons();
+            updateRouteInfo();
+            displayTimetable();
+        }
+
+        function updateDirectionButtons() {
+            document.querySelectorAll('.direction-btn').forEach(btn => {
+                if (btn.textContent === currentDirection) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        function updateRouteInfo() {
+            const routeInfo = document.getElementById('routeInfo');
+            if (currentRoute && currentDirection) {
+                const stations = stationsData.filter(s =>
+                    s.route === currentRoute && s.direction === currentDirection
+                );
+                if (stations.length > 0) {
+                    const first = stations[0].station;
+                    const last = stations[stations.length - 1].station;
+                    routeInfo.textContent = `${currentRoute}（${first}－${last}）${currentDirection}`;
+                }
+            }
+        }
+
+        // --- 運転日マッチング ---
+
+        function matchesSingleCondition(cond, date, dayOfWeek, isWeekend) {
+            if (cond === '毎日') return true;
+            if (cond === '平日') return !isWeekend;
+            if (cond === '土休日' || cond === '休日') return isWeekend;
+            if (cond === '土曜') return dayOfWeek === 6;
+            if (cond === '日曜' || cond === '祝日') return dayOfWeek === 0;
+
+            // 日付範囲: M/D-M/D or YYYY/M/D-YYYY/M/D
+            const rangeMatch = cond.match(/^(\d{1,4}\/\d{1,2}\/\d{1,2}|\d{1,2}\/\d{1,2})-(\d{1,4}\/\d{1,2}\/\d{1,2}|\d{1,2}\/\d{1,2})$/);
+            if (rangeMatch) {
+                const startDate = parseDateSpec(rangeMatch[1], date.getFullYear());
+                const endDate = parseDateSpec(rangeMatch[2], date.getFullYear());
+                if (startDate && endDate) {
+                    if (endDate < startDate) {
+                        return date >= startDate || date <= endDate;
+                    }
+                    return date >= startDate && date <= endDate;
+                }
+            }
+
+            // 単一日付: M/D or YYYY/M/D
+            const singleMatch = cond.match(/^(\d{1,4}\/\d{1,2}\/\d{1,2}|\d{1,2}\/\d{1,2})$/);
+            if (singleMatch) {
+                const target = parseDateSpec(singleMatch[1], date.getFullYear());
+                if (target) {
+                    return date.getFullYear() === target.getFullYear() &&
+                        date.getMonth() === target.getMonth() &&
+                        date.getDate() === target.getDate();
+                }
+            }
+
+            return null; // 未知のパターン
+        }
+
+        function matchesOperationDay(operationDay, dateStr) {
+            if (!dateStr) return true;
+            if (!operationDay) return true;
+
+            const date = new Date(dateStr);
+            const dayOfWeek = date.getDay();
+            const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+
+            const allConditions = operationDay.split('|').map(s => s.trim());
+            const includes = [];
+            const excludes = [];
+            allConditions.forEach(c => {
+                if (c.startsWith('!')) excludes.push(c.substring(1));
+                else includes.push(c);
+            });
+
+            // 除外条件にマッチしたら不一致
+            if (excludes.some(c => matchesSingleCondition(c, date, dayOfWeek, isWeekend) === true)) {
+                return false;
+            }
+
+            // 包含条件が無ければ（除外のみ）→ 除外されなかった＝表示
+            if (includes.length === 0) return true;
+
+            // いずれかの包含条件にマッチすれば表示
+            return includes.some(c => {
+                const result = matchesSingleCondition(c, date, dayOfWeek, isWeekend);
+                return result === null ? true : result; // 未知パターンは表示
+            });
+        }
+
+        function parseDateSpec(spec, defaultYear) {
+            const parts = spec.split('/');
+            if (parts.length === 3) {
+                // YYYY/M/D
+                return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+            } else if (parts.length === 2) {
+                // M/D（年はデフォルト）
+                return new Date(defaultYear, parseInt(parts[0]) - 1, parseInt(parts[1]));
+            }
+            return null;
+        }
+
+        function getFilteredTrains() {
+            const dateStr = document.getElementById('dateFilter').value;
+            const filtered = trainsData.filter(t =>
+                t.route === currentRoute && t.direction === currentDirection
+            );
+
+            // 列車番号ごとにグループ化し、運転日フィルタ
+            const trainNumbers = [...new Set(filtered.map(t => t.trainNumber))];
+            return trainNumbers
+                .map(trainNumber => {
+                    const trainInfo = filtered.find(t => t.trainNumber === trainNumber);
+                    return {
+                        trainNumber,
+                        trainName: trainInfo.trainName,
+                        origin: trainInfo.origin,
+                        originTime: trainInfo.originTime,
+                        operationDay: trainInfo.operationDay
+                    };
+                })
+                .filter(t => matchesOperationDay(t.operationDay, dateStr));
+        }
+
+        function displayTimetable() {
+            if (!currentRoute || !currentDirection) {
+                return;
+            }
+
+            // 駅リストを取得
+            const stations = stationsData.filter(s =>
+                s.route === currentRoute && s.direction === currentDirection
+            ).sort((a, b) => a.order - b.order);
+
+            // 列車リストを取得（フィルタ適用）
+            const trains = getFilteredTrains();
+
+            const display = document.getElementById('timetableDisplay');
+
+            if (stations.length === 0 || trains.length === 0) {
+                display.innerHTML = '<p style="color: #999; text-align: center; padding: 40px;">この条件の時刻表データがありません</p>';
+                return;
+            }
+
+            // 各駅について、着・発の両方があるかどうか判定
+            const stationHasDualRow = {};
+            stations.forEach(station => {
+                const stationEntries = trainsData.filter(t =>
+                    t.route === currentRoute &&
+                    t.direction === currentDirection &&
+                    t.station === station.station &&
+                    t.time !== 'レ'
+                );
+                // 同じ駅で着と発の両方が存在する列車があるか
+                const hasArr = stationEntries.some(e => e.type === '着');
+                const hasDep = stationEntries.some(e => e.type === '発');
+                stationHasDualRow[station.station] = hasArr && hasDep;
+            });
+
+            // テーブル構築
+            let html = '<table class="timetable"><thead><tr><th colspan="1">駅名</th>';
+
+            // 列車ヘッダー
+            trains.forEach(train => {
+                const operationClass = train.operationDay === '毎日' ? 'daily' : '';
+                html += `<th class="train-header">
+                    <div class="train-number">${train.trainNumber}</div>
+                    <div class="train-name">${train.trainName}</div>
+                    <div class="train-origin">${train.origin} ${train.originTime}</div>
+                    <span class="operation-day ${operationClass}">${train.operationDay}</span>
+                </th>`;
+            });
+
+            html += '</tr></thead><tbody>';
+
+            // 各駅の行
+            stations.forEach(station => {
+                const isDual = stationHasDualRow[station.station];
+
+                if (isDual) {
+                    // === 着行 ===
+                    html += `<tr><th rowspan="2" class="station-name-cell">${station.station}</th>`;
+                    trains.forEach(train => {
+                        const arrData = trainsData.find(t =>
+                            t.trainNumber === train.trainNumber &&
+                            t.station === station.station &&
+                            t.type === '着'
+                        );
+                        const depData = trainsData.find(t =>
+                            t.trainNumber === train.trainNumber &&
+                            t.station === station.station &&
+                            t.type === '発'
+                        );
+                        // 通過の場合
+                        const passData = trainsData.find(t =>
+                            t.trainNumber === train.trainNumber &&
+                            t.station === station.station &&
+                            t.time === 'レ'
+                        );
+
+                        if (passData) {
+                            html += `<td rowspan="2"><span class="pass-through">レ</span></td>`;
+                        } else if (arrData) {
+                            html += `<td><span class="arr-dep-label">着</span> <span class="time-cell arrival">${arrData.time}</span></td>`;
+                        } else if (depData) {
+                            // この列車は着がなく発だけ → 着行は空、発行にデータ
+                            html += `<td></td>`;
+                        } else {
+                            html += `<td rowspan="2"></td>`;
+                        }
+                    });
+                    html += '</tr>';
+
+                    // === 発行 ===
+                    html += `<tr>`;
+                    trains.forEach(train => {
+                        const passData = trainsData.find(t =>
+                            t.trainNumber === train.trainNumber &&
+                            t.station === station.station &&
+                            t.time === 'レ'
+                        );
+                        // 通過とデータ無しはrowspanで処理済
+                        if (passData) return;
+
+                        const arrData = trainsData.find(t =>
+                            t.trainNumber === train.trainNumber &&
+                            t.station === station.station &&
+                            t.type === '着'
+                        );
+                        const depData = trainsData.find(t =>
+                            t.trainNumber === train.trainNumber &&
+                            t.station === station.station &&
+                            t.type === '発'
+                        );
+
+                        // データ無しもrowspanで処理済
+                        if (!arrData && !depData) return;
+
+                        if (depData) {
+                            html += `<td><span class="arr-dep-label">発</span> <span class="time-cell departure">${depData.time}</span></td>`;
+                        } else {
+                            // 着だけで発がない
+                            html += `<td></td>`;
+                        }
+                    });
+                    html += '</tr>';
+                } else {
+                    // 単一行（従来通り）
+                    html += `<tr><th>${station.station}</th>`;
+
+                    trains.forEach(train => {
+                        const timeData = trainsData.find(t =>
+                            t.trainNumber === train.trainNumber &&
+                            t.station === station.station
+                        );
+
+                        if (timeData) {
+                            if (timeData.time === 'レ') {
+                                html += `<td><span class="pass-through">レ</span></td>`;
+                            } else {
+                                const typeClass = timeData.type === '発' ? 'departure' : 'arrival';
+                                html += `<td><span class="time-cell ${typeClass}">${timeData.time}</span></td>`;
+                            }
+                        } else {
+                            html += `<td></td>`;
+                        }
+                    });
+
+                    html += '</tr>';
+                }
+            });
+
+            html += '</tbody></table>';
+            display.innerHTML = html;
+        }
+    </script>
+</body>
+
+</html>
