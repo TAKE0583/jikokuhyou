@@ -97,6 +97,28 @@
             background: rgba(255, 255, 255, 0.15);
         }
 
+        .toolbar .schedule-type-btn {
+            padding: 6px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            background: transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.8);
+            transition: all 0.2s;
+        }
+
+        .toolbar .schedule-type-btn.active {
+            background: rgba(255, 200, 50, 0.4);
+            color: white;
+            border-color: rgba(255, 200, 50, 0.8);
+        }
+
+        .toolbar .schedule-type-btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
         .toolbar .zoom-controls {
             display: flex;
             gap: 6px;
@@ -182,6 +204,11 @@
             <button class="direction-btn" data-dir="上り">上り</button>
             <button class="direction-btn" data-dir="上下">上下</button>
         </div>
+        <div style="display: flex; gap: 4px;">
+            <button class="schedule-type-btn active" data-type="全て">全て</button>
+            <button class="schedule-type-btn" data-type="平日">平日</button>
+            <button class="schedule-type-btn" data-type="休日">休日</button>
+        </div>
         <input type="date" id="dateFilter">
         <div class="zoom-controls">
             <span class="zoom-axis-label">↔</span>
@@ -208,6 +235,7 @@
         let trainsData = [];
         let currentRoute = '';
         let currentDirection = '上下';
+        let currentScheduleType = '全て';
 
         // --- View transform ---
         let scale = 1;
@@ -352,12 +380,32 @@
             return p.length === 3 ? new Date(+p[0], +p[1] - 1, +p[2]) : p.length === 2 ? new Date(defaultYear, +p[0] - 1, +p[1]) : null;
         }
 
+        function matchesScheduleType(operationDay, scheduleType) {
+            if (scheduleType === '全て') return true;
+            if (!operationDay) return true;
+            const allConds = operationDay.split('|').map(s => s.trim());
+            const includes = allConds.filter(c => !c.startsWith('!'));
+            if (includes.length === 0) return true;
+            for (const cond of includes) {
+                if (cond === '毎日') return true;
+                if (scheduleType === '平日' && cond === '平日') return true;
+                if (scheduleType === '休日' && (cond === '休日' || cond === '土休日')) return true;
+            }
+            const dayKeywords = ['毎日', '平日', '休日', '土休日', '土曜', '日曜', '祝日'];
+            const hasKnownType = includes.some(c => dayKeywords.includes(c));
+            if (!hasKnownType) return true;
+            return false;
+        }
+
         function getFilteredTrains(direction) {
             const dateStr = document.getElementById('dateFilter').value;
             const filtered = trainsData.filter(t => t.route === currentRoute && t.direction === direction);
             const keys = [...new Set(filtered.map(t => t.trainNumber + '\t' + t.operationDay))];
             return keys.map(k => { const sep = k.indexOf('\t'); const n = k.substring(0, sep); const od = k.substring(sep + 1); const i = filtered.find(t => t.trainNumber === n && t.operationDay === od); return { trainNumber: n, trainName: i.trainName, operationDay: i.operationDay, direction }; })
-                .filter(t => matchesOperationDay(t.operationDay, dateStr));
+                .filter(t => {
+                    if (dateStr) return matchesOperationDay(t.operationDay, dateStr);
+                    return matchesScheduleType(t.operationDay, currentScheduleType);
+                });
         }
 
         // --- Controls ---
@@ -371,8 +419,27 @@
                     currentDirection = this.dataset.dir; updateDirectionButtons(); rebuildAndRender();
                 });
             });
-            document.getElementById('dateFilter').addEventListener('change', () => rebuildAndRender());
+            document.querySelectorAll('.schedule-type-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    currentScheduleType = this.dataset.type;
+                    updateScheduleTypeButtons();
+                    // ダイヤ種別選択時は日付をクリア
+                    if (currentScheduleType !== '全て') {
+                        document.getElementById('dateFilter').value = '';
+                    }
+                    rebuildAndRender();
+                });
+            });
+            document.getElementById('dateFilter').addEventListener('change', () => {
+                // 日付指定時はダイヤ種別を「全て」に
+                if (document.getElementById('dateFilter').value) {
+                    currentScheduleType = '全て';
+                    updateScheduleTypeButtons();
+                }
+                rebuildAndRender();
+            });
             updateDirectionButtons();
+            updateScheduleTypeButtons();
         }
 
         function updateRouteSelect() {
@@ -385,6 +452,12 @@
         function updateDirectionButtons() {
             document.querySelectorAll('.direction-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.dir === currentDirection);
+            });
+        }
+
+        function updateScheduleTypeButtons() {
+            document.querySelectorAll('.schedule-type-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.type === currentScheduleType);
             });
         }
 

@@ -119,6 +119,33 @@
             border-color: #00bcd4;
         }
 
+        .schedule-type-selector {
+            display: flex;
+            gap: 8px;
+        }
+
+        .schedule-type-btn {
+            padding: 10px 20px;
+            border: 2px solid #e0e0e0;
+            background: white;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        .schedule-type-btn.active {
+            background: #f57c00;
+            color: white;
+            border-color: #f57c00;
+        }
+
+        .schedule-type-btn:hover:not(.active) {
+            border-color: #f57c00;
+            color: #f57c00;
+        }
+
         .content {
             max-width: 100%;
             overflow: hidden;
@@ -303,7 +330,15 @@
                     </div>
                 </div>
                 <div class="control-group">
-                    <label>日付フィルター</label>
+                    <label>ダイヤ種別</label>
+                    <div class="schedule-type-selector" id="scheduleTypeSelector">
+                        <button class="schedule-type-btn active" onclick="selectScheduleType('全て')">全て</button>
+                        <button class="schedule-type-btn" onclick="selectScheduleType('平日')">平日</button>
+                        <button class="schedule-type-btn" onclick="selectScheduleType('休日')">休日</button>
+                    </div>
+                </div>
+                <div class="control-group">
+                    <label>日付指定</label>
                     <div style="display: flex; gap: 8px; align-items: center;">
                         <input type="date" id="dateFilter"
                             style="padding: 10px 15px; font-size: 14px; border: 2px solid #e0e0e0; border-radius: 10px;">
@@ -333,6 +368,7 @@
         let trainsData = [];
         let currentRoute = '';
         let currentDirection = '下り';
+        let currentScheduleType = '全て';
 
         // 初期化
         document.addEventListener('DOMContentLoaded', async function () {
@@ -349,6 +385,13 @@
             });
 
             document.getElementById('dateFilter').addEventListener('change', function () {
+                // 日付を指定したらダイヤ種別を「全て」にリセット
+                if (this.value) {
+                    currentScheduleType = '全て';
+                    document.querySelectorAll('.schedule-type-btn').forEach(btn => {
+                        btn.classList.toggle('active', btn.textContent === '全て');
+                    });
+                }
                 displayTimetable();
             });
         }
@@ -356,6 +399,40 @@
         function clearDateFilter() {
             document.getElementById('dateFilter').value = '';
             displayTimetable();
+        }
+
+        function selectScheduleType(type) {
+            currentScheduleType = type;
+            document.querySelectorAll('.schedule-type-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent === type);
+            });
+            // 日付指定がある場合はクリア（ダイヤ種別ボタンを優先）
+            if (type !== '全て') {
+                document.getElementById('dateFilter').value = '';
+            }
+            displayTimetable();
+        }
+
+        function matchesScheduleType(operationDay, scheduleType) {
+            if (scheduleType === '全て') return true;
+            if (!operationDay) return true;
+
+            const allConds = operationDay.split('|').map(s => s.trim());
+            const includes = allConds.filter(c => !c.startsWith('!'));
+            if (includes.length === 0) return true;
+
+            for (const cond of includes) {
+                if (cond === '毎日') return true;
+                if (scheduleType === '平日' && cond === '平日') return true;
+                if (scheduleType === '休日' && (cond === '休日' || cond === '土休日')) return true;
+            }
+
+            // 日付指定のみの列車（曜日キーワードなし）は表示
+            const dayKeywords = ['毎日', '平日', '休日', '土休日', '土曜', '日曜', '祝日'];
+            const hasKnownType = includes.some(c => dayKeywords.includes(c));
+            if (!hasKnownType) return true;
+
+            return false;
         }
 
         function parseCSV(text) {
@@ -606,7 +683,10 @@
                         operationDay: trainInfo.operationDay
                     };
                 })
-                .filter(t => matchesOperationDay(t.operationDay, dateStr));
+                .filter(t => {
+                    if (dateStr) return matchesOperationDay(t.operationDay, dateStr);
+                    return matchesScheduleType(t.operationDay, currentScheduleType);
+                });
         }
 
         function displayTimetable() {
