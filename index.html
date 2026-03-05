@@ -590,11 +590,14 @@
                 t.route === currentRoute && t.direction === currentDirection
             );
 
-            // 列車番号ごとにグループ化し、運転日フィルタ
-            const trainNumbers = [...new Set(filtered.map(t => t.trainNumber))];
-            return trainNumbers
-                .map(trainNumber => {
-                    const trainInfo = filtered.find(t => t.trainNumber === trainNumber);
+            // 列車番号+運転日の組み合わせでグループ化（同じ番号で平日/休日がある場合に対応）
+            const trainKeys = [...new Set(filtered.map(t => t.trainNumber + '\t' + t.operationDay))];
+            return trainKeys
+                .map(key => {
+                    const sep = key.indexOf('\t');
+                    const trainNumber = key.substring(0, sep);
+                    const operationDay = key.substring(sep + 1);
+                    const trainInfo = filtered.find(t => t.trainNumber === trainNumber && t.operationDay === operationDay);
                     return {
                         trainNumber,
                         trainName: trainInfo.trainName,
@@ -633,6 +636,7 @@
                     t.route === currentRoute &&
                     t.direction === currentDirection &&
                     t.station === station.station &&
+                    trains.some(tr => tr.trainNumber === t.trainNumber && tr.operationDay === t.operationDay) &&
                     t.time !== 'レ'
                 );
                 // 同じ駅で着と発の両方が存在する列車があるか
@@ -667,17 +671,20 @@
                     trains.forEach(train => {
                         const arrData = trainsData.find(t =>
                             t.trainNumber === train.trainNumber &&
+                            t.operationDay === train.operationDay &&
                             t.station === station.station &&
                             t.type === '着'
                         );
                         const depData = trainsData.find(t =>
                             t.trainNumber === train.trainNumber &&
+                            t.operationDay === train.operationDay &&
                             t.station === station.station &&
                             t.type === '発'
                         );
                         // 通過の場合
                         const passData = trainsData.find(t =>
                             t.trainNumber === train.trainNumber &&
+                            t.operationDay === train.operationDay &&
                             t.station === station.station &&
                             t.time === 'レ'
                         );
@@ -700,6 +707,7 @@
                     trains.forEach(train => {
                         const passData = trainsData.find(t =>
                             t.trainNumber === train.trainNumber &&
+                            t.operationDay === train.operationDay &&
                             t.station === station.station &&
                             t.time === 'レ'
                         );
@@ -708,11 +716,13 @@
 
                         const arrData = trainsData.find(t =>
                             t.trainNumber === train.trainNumber &&
+                            t.operationDay === train.operationDay &&
                             t.station === station.station &&
                             t.type === '着'
                         );
                         const depData = trainsData.find(t =>
                             t.trainNumber === train.trainNumber &&
+                            t.operationDay === train.operationDay &&
                             t.station === station.station &&
                             t.type === '発'
                         );
@@ -735,6 +745,7 @@
                     trains.forEach(train => {
                         const timeData = trainsData.find(t =>
                             t.trainNumber === train.trainNumber &&
+                            t.operationDay === train.operationDay &&
                             t.station === station.station
                         );
 

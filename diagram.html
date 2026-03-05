@@ -355,8 +355,8 @@
         function getFilteredTrains(direction) {
             const dateStr = document.getElementById('dateFilter').value;
             const filtered = trainsData.filter(t => t.route === currentRoute && t.direction === direction);
-            const nums = [...new Set(filtered.map(t => t.trainNumber))];
-            return nums.map(n => { const i = filtered.find(t => t.trainNumber === n); return { trainNumber: n, trainName: i.trainName, operationDay: i.operationDay, direction }; })
+            const keys = [...new Set(filtered.map(t => t.trainNumber + '\t' + t.operationDay))];
+            return keys.map(k => { const sep = k.indexOf('\t'); const n = k.substring(0, sep); const od = k.substring(sep + 1); const i = filtered.find(t => t.trainNumber === n && t.operationDay === od); return { trainNumber: n, trainName: i.trainName, operationDay: i.operationDay, direction }; })
                 .filter(t => matchesOperationDay(t.operationDay, dateStr));
         }
 
@@ -573,15 +573,15 @@
 
             activeDirections.forEach(dir => {
                 const ft = getFilteredTrains(dir);
-                const ftNums = ft.map(t => t.trainNumber);
-                const trainEntries = trainsData.filter(t => t.route === currentRoute && t.direction === dir && ftNums.includes(t.trainNumber));
+                const ftKeys = ft.map(t => t.trainNumber + '\t' + t.operationDay);
+                const trainEntries = trainsData.filter(t => t.route === currentRoute && t.direction === dir && ftKeys.includes(t.trainNumber + '\t' + t.operationDay));
 
                 trainEntries.forEach(t => { const m = timeToMinutes(t.time); if (m !== null) { minT = Math.min(minT, m); maxT = Math.max(maxT, m); } });
 
                 const palette = dir === '下り' ? downColors : upColors;
 
-                ftNums.forEach((num, idx) => {
-                    const entries = trainEntries.filter(e => e.trainNumber === num);
+                ft.forEach((train, idx) => {
+                    const entries = trainEntries.filter(e => e.trainNumber === train.trainNumber && e.operationDay === train.operationDay);
                     const st = {};
                     entries.forEach(e => {
                         if (e.time === 'レ') return;
@@ -590,7 +590,7 @@
                         if (!st[e.station]) st[e.station] = {};
                         st[e.station][e.type] = m;
                     });
-                    allTrainLines.push({ dir, trainNumber: num, label: entries[0]?.trainName || '', color: palette[idx % palette.length], st });
+                    allTrainLines.push({ dir, trainNumber: train.trainNumber, label: entries[0]?.trainName || '', color: palette[idx % palette.length], st });
                 });
             });
 
