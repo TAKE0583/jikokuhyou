@@ -285,6 +285,40 @@
             color: #333;
         }
 
+        .through-service-row th {
+            background: #e8f5e9 !important;
+            color: #2e7d32;
+            font-weight: 600;
+            border-top: 2px solid #4caf50;
+        }
+
+        .through-service-row td {
+            background: #f1f8e9;
+            border-top: 2px solid #4caf50;
+        }
+
+        .through-service-link {
+            display: inline-block;
+            color: #2e7d32;
+            text-decoration: none;
+            cursor: pointer;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: all 0.2s;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .through-service-link:hover {
+            background: #c8e6c9;
+            text-decoration: underline;
+        }
+
+        .through-service-dest {
+            font-size: 11px;
+            color: #558b2f;
+        }
+
 
 
 
@@ -366,6 +400,7 @@
     <script>
         let stationsData = [];
         let trainsData = [];
+        let connectionsData = [];
         let currentRoute = '';
         let currentDirection = '下り';
         let currentScheduleType = '全て';
@@ -488,6 +523,22 @@
                 }));
         }
 
+        function parseConnectionsCSV(text) {
+            const lines = parseCSV(text);
+            return lines
+                .filter(line => line.length >= 8 && line[0] && line[2])
+                .map(line => ({
+                    route1: line[0],
+                    direction1: line[1],
+                    trainNumber1: line[2],
+                    operationDay: line[3],
+                    connectionStation: line[4],
+                    route2: line[5],
+                    direction2: line[6],
+                    trainNumber2: line[7]
+                }));
+        }
+
         async function loadCSVFiles() {
             try {
                 // 駅データを読み込み
@@ -496,6 +547,17 @@
                 const stationText = await stationRes.text();
                 if (!stationText.trim()) return;
                 stationsData = parseStationCSV(stationText);
+
+                // 接続データを読み込み
+                try {
+                    const connRes = await fetch('connections.csv');
+                    if (connRes.ok) {
+                        const connText = await connRes.text();
+                        if (connText.trim()) {
+                            connectionsData = parseConnectionsCSV(connText);
+                        }
+                    }
+                } catch (e) { /* connections.csv が無い場合はスキップ */ }
 
                 // 路線一覧を取得して、路線ごとの列車データを読み込み
                 const routes = [...new Set(stationsData.map(s => s.route))];
@@ -689,6 +751,22 @@
                 });
         }
 
+        function navigateToConnection(route, direction) {
+            // 路線セレクトを更新
+            const routeSelect = document.getElementById('routeSelect');
+            if (routeSelect) routeSelect.value = route;
+            currentRoute = route;
+            currentDirection = direction;
+            updateDirectionSelector();
+            // 方向ボタンを強制的に direction に合わせる
+            currentDirection = direction;
+            updateDirectionButtons();
+            updateRouteInfo();
+            displayTimetable();
+            // ページ先頭にスクロール
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
         function displayTimetable() {
             if (!currentRoute || !currentDirection) {
                 return;
@@ -844,6 +922,77 @@
                     html += '</tr>';
                 }
             });
+
+            // === 直通先行（through-service row） ===
+            // 各列車について、現路線からの接続があるか確認
+            const hasAnyConnection = trains.some(train => {
+                return connectionsData.some(c =>
+                    c.route1 === currentRoute &&
+                    c.direction1 === currentDirection &&
+                    c.trainNumber1 === train.trainNumber &&
+                    c.operationDay === train.operationDay
+                );
+            });
+
+            if (hasAnyConnection) {
+                html += `<tr class="through-service-row"><th>直通先</th>`;
+                trains.forEach(train => {
+                    const conn = connectionsData.find(c =>
+                        c.route1 === currentRoute &&
+                        c.direction1 === currentDirection &&
+                        c.trainNumber1 === train.trainNumber &&
+                        c.operationDay === train.operationDay
+                    );
+
+                    if (conn) {
+                        // 接続先の列車の終着駅と時刻を取得
+                        // 接続チェーンを辿って最終目的地を見つける
+                        let finalRoute = conn.route2;
+                        let finalDir = conn.direction2;
+                        let finalTrainNum = conn.trainNumber2;
+                        let finalOpDay = conn.operationDay;
+
+                        // チェーンを辿る（最大10段階）
+                        for (let i = 0; i < 10; i++) {
+                            const next = connectionsData.find(c =>
+                                c.route1 === finalRoute &&
+                                c.direction1 === finalDir &&
+                                c.trainNumber1 === finalTrainNum &&
+                                c.operationDay === finalOpDay
+                            );
+                            if (!next) break;
+                            finalRoute = next.route2;
+                            finalDir = next.direction2;
+                            finalTrainNum = next.trainNumber2;
+                        }
+
+                        // 最終路線の終着駅を取得
+                        const finalTrainEntries = trainsData.filter(t =>
+                            t.route === finalRoute &&
+                            t.direction === finalDir &&
+                            t.trainNumber === finalTrainNum &&
+                            t.operationDay === finalOpDay
+                        );
+                        const lastEntry = finalTrainEntries.find(t => t.type === '着');
+                        const destStation = lastEntry ? lastEntry.station : train.origin;
+                        const destTime = lastEntry ? lastEntry.time : '';
+
+                        // 直接の接続先の路線（クリックで遷移する先）
+                        const nextRoute = conn.route2;
+                        const nextDir = conn.direction2;
+
+                        html += `<td>
+                            <a class="through-service-link" onclick="navigateToConnection('${nextRoute}', '${nextDir}')" title="${nextRoute}の時刻表を表示">
+                                → ${destStation}
+                            </a>
+                            ${destTime ? `<div class="through-service-dest">着 ${destTime}</div>` : ''}
+                        </td>`;
+                    } else {
+                        html += `<td></td>`;
+                    }
+                });
+                html += '</tr>';
+            }
 
             html += '</tbody></table>';
             display.innerHTML = html;
